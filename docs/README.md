@@ -8,6 +8,11 @@
 
 ---
 
+
+> ⚠️ **وضعیت واقعی (۱۴۰۴/۰۸/۰۲):** این مجموعه «پیش‌نویس معماری» است و **تأیید مالک محصول/حسابرس ندارد**؛ در دفتر تصمیم‌ها `Proposed` است.
+> مخزن فعلاً **هیچ کد محصولی ندارد** و بسته ورودی فرمان مادر (`prompts/`، `PROJECT_SPEC.md`، `desktop/`، `docs/financial/*`) در آن موجود نیست.
+> شاهد و جزئیات: [ممیزی خط مبنا](audit/BASELINE_AUDIT_00_FA.md) · تصمیم‌ها: [decision-log](decision-log.md).
+
 ## ۱. وضعیت نسخه
 
 | مورد | مقدار |
@@ -19,6 +24,7 @@
 | واحد پول پایه | ریال ایران (IRR) — نمایش پیش‌فرض: تومان |
 | تقویم عملیاتی | هجری شمسی (Jalali) — ذخیره‌سازی استاندارد UTC |
 | سال مالی | ۱ فروردین تا ۲۹/۳۰ اسفند |
+| وضعیت اعتبار | `Proposed` — بدون تأیید مالک محصول |
 | دامنه نسخه ۱.۰ | هسته داده، حسابداری، بانک و Import Studio، باسکول، انبار، خرید، فروش، صافی مشتری، BI، گزارش، چاپ، امنیت |
 
 ---
@@ -96,6 +102,8 @@
 | ۳۸ | سناریوهای عملیاتی مازندشت | [scenarios/mazandasht-operations.md](scenarios/mazandasht-operations.md) |
 | ۳۹ | نقشه توسعه و فازبندی | [00-foundations/roadmap.md](00-foundations/roadmap.md) |
 | ۴۰ | طرح آزمون پذیرش (UAT) | [00-foundations/test-plan.md](00-foundations/test-plan.md) |
+| ۴۱ | ممیزی خط مبنا (AUDIT-00) | [audit/BASELINE_AUDIT_00_FA.md](audit/BASELINE_AUDIT_00_FA.md) |
+| ۴۲ | دفتر تصمیم‌ها (Decision Log) | [decision-log.md](decision-log.md) |
 
 ---
 

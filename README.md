@@ -7,6 +7,11 @@
 [![Docs](https://img.shields.io/badge/docs-v1.0--draft-blue)](docs/README.md)
 [![Status](https://img.shields.io/badge/phase-architecture-orange)]()
 
+
+> ⚠️ **وضعیت مخزن (۱۴۰۴/۰۸/۰۲):** این مخزن در حال حاضر **مستندات معماری + اسکیمای پایه** دارد و **هیچ کد محصولی ندارد**.
+> مستندات، پیش‌نویس (`Proposed`) هستند و جایگزین اسناد مالی مصوب نیستند.
+> ممیزی کامل و ورودی‌های غایب: [docs/audit/BASELINE_AUDIT_00_FA.md](docs/audit/BASELINE_AUDIT_00_FA.md) · تصمیم‌های باز: [docs/decision-log.md](docs/decision-log.md)
+
 ## این چیست؟
 
 | لایه | توضیح |
