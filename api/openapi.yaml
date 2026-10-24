@@ -1,0 +1,554 @@
+openapi: 3.1.0
+info:
+  title: MazanDasht EPR OS API
+  version: 1.0.0-draft
+  description: |
+    قرارداد API نسخه ۱.۰ — MazanDasht EPR OS
+    (Intelligent Citrus Sorting & Financial Operating System)
+
+    قواعد:
+    - همه POSTهای مالی نیازمند هدر `Idempotency-Key` هستند.
+    - مبالغ و وزن‌ها به‌صورت رشته عددی منتقل می‌شوند (جلوگیری از خطای شناور).
+    - تاریخ‌ها میلادی `YYYY-MM-DD`؛ تبدیل شمسی در کلاینت.
+    - خطاها با RFC 7807 و کد قاعده (`BR-…`) برگردانده می‌شوند.
+  contact:
+    name: MazanDasht Architecture Board
+servers:
+  - url: /api/v1
+    description: Local / LAN
+security:
+  - bearerAuth: []
+
+tags:
+  - name: auth
+  - name: core
+  - name: weighbridge
+  - name: sales
+  - name: accounting
+  - name: import
+  - name: bi
+  - name: system
+
+paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      security: []
+      summary: ورود و دریافت توکن
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: موفق
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+                  refreshToken: { type: string }
+                  permissions: { type: array, items: { type: string } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /quick-actions:
+    get:
+      tags: [system]
+      summary: فهرست عملیات «ایجاد سریع ⊕» بر اساس مجوز کاربر
+      responses:
+        "200":
+          description: فهرست
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        label: { type: string }
+                        icon: { type: string }
+                        shortcut: { type: string }
+                        permission: { type: string }
+                        endpoint: { type: string }
+
+  /core/parties:
+    get:
+      tags: [core]
+      summary: جست‌وجوی طرف حساب
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: role, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 25, maximum: 200 } }
+      responses:
+        "200":
+          description: صفحه نتایج
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Party" }
+    post:
+      tags: [core]
+      summary: ایجاد طرف حساب
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PartyCreate" }
+      responses:
+        "201":
+          description: ایجاد شد
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Party" }
+        "422": { $ref: "#/components/responses/BusinessRule" }
+
+  /wb/tickets:
+    post:
+      tags: [weighbridge]
+      summary: ایجاد قبض باسکول (وزن اول)
+      description: |
+        وزن خالص در سرور محاسبه می‌شود (F-01): `gross − tare − basket − waste`.
+        ورودی `idempotency_key` برای کلاینت‌های آفلاین الزامی است.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TicketCreate" }
+      responses:
+        "201":
+          description: قبض ایجاد شد
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ticket" }
+        "409": { description: قبض باز برای همین خودرو وجود دارد (BR-313) }
+        "422": { $ref: "#/components/responses/BusinessRule" }
+
+  /wb/tickets/{id}/price:
+    post:
+      tags: [weighbridge]
+      summary: قیمت‌گذاری قبض
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [unitPrice]
+              properties:
+                unitPrice: { type: string, example: "18000" }
+                contractId: { type: string, format: uuid }
+      responses:
+        "200":
+          description: قیمت‌گذاری شد
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ticket" }
+
+  /wb/tickets/by-qr/{payload}:
+    get:
+      tags: [weighbridge]
+      summary: بازیابی قبض با QR
+      parameters:
+        - { name: payload, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: قبض
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ticket" }
+        "404": { description: یافت نشد یا هش نامعتبر }
+
+  /sales/invoices:
+    post:
+      tags: [sales]
+      summary: صدور فاکتور فروش
+      description: |
+        محاسبه در سرور: `gross = Σ(net_weight × unit_price)`،
+        کسورات بر اساس `sequence`، `netPayable = gross − deductions + additions + vat`.
+        سند حسابداری JE-SAL-001/002 در همان تراکنش ساخته می‌شود.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvoiceCreate" }
+      responses:
+        "201":
+          description: فاکتور ثبت شد
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Invoice" }
+        "422": { $ref: "#/components/responses/BusinessRule" }
+
+  /fin/vouchers/{id}/reverse:
+    post:
+      tags: [accounting]
+      summary: صدور سند برگشتی
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 10 }
+                documentDate: { type: string, format: date }
+      responses:
+        "201":
+          description: سند برگشتی
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Voucher" }
+        "403": { description: مجوز یا تفکیک وظایف (BR-001) }
+
+  /import/batches:
+    post:
+      tags: [import]
+      summary: آپلود فایل صورتحساب بانکی
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, sourceType]
+              properties:
+                file: { type: string, format: binary }
+                sourceType:
+                  type: string
+                  enum: [BANK_STATEMENT, CUSTOMERS, ITEMS, OPENING_BALANCE, MANUAL_VOUCHER]
+                accountId: { type: string, format: uuid }
+      responses:
+        "202":
+          description: در حال پردازش
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batchId: { type: string, format: uuid }
+                  code: { type: string, example: "IMP-140407-0004" }
+
+  /import/batches/{id}/preview:
+    get:
+      tags: [import]
+      summary: پیش‌نمایش ردیف‌ها با طبقه‌بندی (جدید/تکراری/مشکوک/ناقص)
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: status, in: query, schema: { type: string, enum: [NEW, DUPLICATE, SUSPICIOUS, INVALID] } }
+      responses:
+        "200":
+          description: پیش‌نمایش
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: object
+                    properties:
+                      new: { type: integer }
+                      duplicate: { type: integer }
+                      suspicious: { type: integer }
+                      invalid: { type: integer }
+                  lines:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        rowNo: { type: integer }
+                        businessDate: { type: string, format: date }
+                        description: { type: string }
+                        debit: { type: string }
+                        credit: { type: string }
+                        status: { type: string }
+                        classification: { type: string }
+                        confidence: { type: number }
+                        accountCode: { type: string }
+                        partyId: { type: string, format: uuid }
+
+  /import/batches/{id}/post:
+    post:
+      tags: [import]
+      summary: ثبت اتمیک دسته (BR-525)
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lineIds: { type: array, items: { type: string, format: uuid } }
+                aggregate: { type: boolean, default: false }
+      responses:
+        "200":
+          description: نتیجه ثبت
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posted: { type: integer }
+                  skipped: { type: integer }
+                  voucherIds: { type: array, items: { type: string, format: uuid } }
+
+  /bi/dashboard:
+    get:
+      tags: [bi]
+      summary: داشبورد امروز
+      parameters:
+        - { name: branchId, in: query, schema: { type: string, format: uuid } }
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: کارت‌های داشبورد (هر عدد دارای drillDown)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sales: { $ref: "#/components/schemas/KpiValue" }
+                  purchases: { $ref: "#/components/schemas/KpiValue" }
+                  grossProfit: { $ref: "#/components/schemas/KpiValue" }
+                  cashBox: { $ref: "#/components/schemas/KpiValue" }
+                  bank: { $ref: "#/components/schemas/KpiValue" }
+                  profitPerTon: { $ref: "#/components/schemas/KpiValue" }
+                  wasteRate: { $ref: "#/components/schemas/KpiValue" }
+
+  /sync/push:
+    post:
+      tags: [system]
+      summary: ارسال تغییرات کلاینت آفلاین
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nodeId, changes]
+              properties:
+                nodeId: { type: string, example: "WB-01" }
+                changes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      seq: { type: integer }
+                      entity: { type: string }
+                      op: { type: string, enum: [insert, update, delete] }
+                      id: { type: string, format: uuid }
+                      payload: { type: object }
+                      idempotencyKey: { type: string }
+      responses:
+        "200":
+          description: نتیجه
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  applied: { type: integer }
+                  rejected: { type: array, items: { type: object } }
+                  serverRevision: { type: integer }
+                  codeMap: { type: object, additionalProperties: { type: string } }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, maxLength: 120 }
+
+  responses:
+    Unauthorized:
+      description: احراز هویت نامعتبر
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    BusinessRule:
+      description: نقض قاعده کسب‌وکار
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    Problem:
+      type: object
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string, example: "BR-405" }
+        detail: { type: string }
+        correlationId: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    Party:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, example: "CUS-000123" }
+        name: { type: string }
+        mobile: { type: string }
+        roles: { type: array, items: { type: string } }
+        creditLimit: { type: string }
+        balance: { type: string }
+        isBlocked: { type: boolean }
+
+    PartyCreate:
+      type: object
+      required: [name, role]
+      properties:
+        name: { type: string, maxLength: 256 }
+        role: { type: string, enum: [GROWER, SUPPLIER, MARKET_TRADER, WHOLESALER, EXPORTER, BROKER, DRIVER] }
+        mobile: { type: string }
+        nationalId: { type: string }
+        creditLimit: { type: string, default: "0" }
+        branchId: { type: string, format: uuid }
+
+    TicketCreate:
+      type: object
+      required: [direction, vehicleId, driverId, partyId, itemId, grossWeightKg]
+      properties:
+        direction: { type: string, enum: [IN, OUT, RETURN] }
+        vehicleId: { type: string, format: uuid }
+        driverId: { type: string, format: uuid }
+        partyId: { type: string, format: uuid }
+        gardenId: { type: string, format: uuid }
+        contractId: { type: string, format: uuid }
+        itemId: { type: string, format: uuid }
+        grossWeightKg: { type: string, example: "27650.000" }
+        tareWeightKg: { type: string, example: "9200.000" }
+        basketCount: { type: integer, example: 210 }
+        basketTypeId: { type: string, format: uuid }
+        wastePct: { type: string, example: "2" }
+        scaleId: { type: string, format: uuid }
+        isManualWeight: { type: boolean, default: false }
+        businessDate: { type: string, format: date }
+
+    Ticket:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, example: "1404-07-18-WB-0042" }
+        vehicleNetKg: { type: string, example: "18450.000" }
+        basketTareKg: { type: string, example: "588.000" }
+        wasteKg: { type: string, example: "357.240" }
+        netWeightKg: { type: string, example: "17504.760" }
+        status: { type: string, example: "WEIGHED" }
+        qrPayload: { type: string, example: "WB|1404-07-18-WB-0042|9f2a1c" }
+
+    InvoiceCreate:
+      type: object
+      required: [partyId, businessDate, lines]
+      properties:
+        partyId: { type: string, format: uuid }
+        channelId: { type: string, format: uuid }
+        salespersonId: { type: string, format: uuid }
+        businessDate: { type: string, format: date }
+        priceBasis: { type: string, enum: [PER_KG, PER_CARTON, PER_PALLET] }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [itemId, unitPrice]
+            properties:
+              itemId: { type: string, format: uuid }
+              lotId: { type: string, format: uuid }
+              coldRoomId: { type: string, format: uuid }
+              grade: { type: string, enum: [A, B, C] }
+              basketCount: { type: integer }
+              basketTypeId: { type: string, format: uuid }
+              scaleWeightKg: { type: string }
+              wastePct: { type: string }
+              cartonCount: { type: integer }
+              unitPrice: { type: string, example: "320000" }
+        deductions:
+          type: array
+          items:
+            type: object
+            required: [typeCode, calcMethod]
+            properties:
+              typeCode: { type: string, enum: [PURITY, LOSS, COMMISSION, FREIGHT, LOADING, CARTON, PACKAGING, LABOR, OTHER] }
+              calcMethod: { type: string, enum: [PCT_OF_GROSS, PCT_OF_NET, FIXED] }
+              rate: { type: string, example: "0.75" }
+              amount: { type: string, example: "45000000" }
+              accountId: { type: string, format: uuid }
+              costCenterId: { type: string, format: uuid }
+        printTemplateId: { type: string, format: uuid }
+
+    Invoice:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, example: "S14-002381" }
+        grossAmount: { type: string, example: "5328000000" }
+        deductionAmount: { type: string, example: "123600000" }
+        netPayable: { type: string, example: "5204400000" }
+        status: { type: string, example: "POSTED" }
+        voucherId: { type: string, format: uuid }
+        voucherCode: { type: string, example: "140407-00891" }
+        warnings: { type: array, items: { type: object } }
+
+    Voucher:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, example: "140407-00915" }
+        status: { type: string, example: "POSTED" }
+        totalDebit: { type: string }
+        totalCredit: { type: string }
+        reversedById: { type: string, format: uuid }
+
+    KpiValue:
+      type: object
+      properties:
+        value: { type: string }
+        unit: { type: string, example: "IRR" }
+        changePct: { type: number }
+        drillDownUrl: { type: string, example: "/sales/invoices?from=2026-10-10&to=2026-10-10" }

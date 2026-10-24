@@ -1,0 +1,37 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+
+# Node / front-end
+node_modules/
+dist/
+dist-electron/
+.vite/
+*.tsbuildinfo
+
+# Python tools
+__pycache__/
+.venv/
+
+# پایگاه داده و پشتیبان
+*.dump
+*.bak
+*.mdf
+*.db
+*.sqlite
+*.sqlite3
+/backup/
+
+# فایل‌های محلی و مخفی
+.env
+.env.*
+appsettings.Local.json
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# خروجی‌های تولیدی مستندات
+docs/_build/
